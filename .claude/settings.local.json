@@ -3,7 +3,11 @@
     "allow": [
       "Bash(awk:*)",
       "Bash(grep:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(streamlit run:*)",
+      "Bash(pkill:*)",
+      "Bash(sed:*)",
+      "Bash(git init:*)"
     ],
     "deny": []
   }

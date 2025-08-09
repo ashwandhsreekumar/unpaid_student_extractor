@@ -69,7 +69,7 @@ def create_visualizations(summary_data, school_name):
         y='Count',
         title=f"Defaulters by Grade - {school_name}",
         color='Count',
-        color_continuous_scale='Reds'
+        color_continuous_scale='RdYlGn_r'
     )
     fig_bar.update_layout(height=400)
     
@@ -141,6 +141,12 @@ def main():
     st.title("📊 Fee Defaulter Extraction System")
     st.markdown("### K-12 School Fee Management Portal")
     
+    # Initialize session state
+    if 'processed' not in st.session_state:
+        st.session_state.processed = False
+        st.session_state.results = None
+        st.session_state.zip_data = None
+    
     # Sidebar
     with st.sidebar:
         st.header("📁 Upload Files")
@@ -148,16 +154,26 @@ def main():
         contacts_file = st.file_uploader(
             "Upload Contacts.csv",
             type=['csv'],
-            help="Upload the contacts CSV file from Zoho Books"
+            help="Upload the contacts CSV file from Zoho Books",
+            key="contacts_uploader"
         )
         
         invoices_file = st.file_uploader(
             "Upload Invoice.csv",
             type=['csv'],
-            help="Upload the invoice CSV file from Zoho Books"
+            help="Upload the invoice CSV file from Zoho Books",
+            key="invoices_uploader"
         )
         
         process_button = st.button("🚀 Process Files", type="primary", use_container_width=True)
+        
+        # Reset button
+        if st.session_state.processed:
+            if st.button("🔄 Reset", type="secondary", use_container_width=True):
+                st.session_state.processed = False
+                st.session_state.results = None
+                st.session_state.zip_data = None
+                st.rerun()
         
         st.divider()
         
@@ -180,181 +196,220 @@ def main():
             try:
                 results, zip_data = process_uploaded_files(contacts_file, invoices_file)
                 
+                # Store in session state
+                st.session_state.processed = True
+                st.session_state.results = results
+                st.session_state.zip_data = zip_data
+                
                 st.success("✅ Files processed successfully!")
+                st.rerun()
                 
-                # Download button for all reports
-                st.download_button(
-                    label="📥 Download All Reports (ZIP)",
-                    data=zip_data,
-                    file_name=f"fee_defaulter_reports_{date.today().strftime('%Y%m%d')}.zip",
-                    mime="application/zip",
-                    use_container_width=True
-                )
-                
-                # Tabs for each school
-                tab1, tab2 = st.tabs(["Excel Global School", "Excel Central School"])
-                
-                with tab1:
-                    if not results['Excel Global School'].empty:
-                        summary = results['Excel Global School']
-                        
-                        # Metrics
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Total Students", len(summary))
-                        with col2:
-                            defaulters = len(summary[summary['Total Outstanding'] > 0])
-                            st.metric("Defaulters", defaulters)
-                        with col3:
-                            st.metric("Total Outstanding", f"₹{summary['Total Outstanding'].sum():,.0f}")
-                        with col4:
-                            st.metric("Grades Affected", summary['Grade'].nunique())
-                        
-                        # Visualizations
-                        st.divider()
-                        fig_pie, fig_bar, fig_amount = create_visualizations(summary, "Excel Global School")
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.plotly_chart(fig_pie, use_container_width=True)
-                        with col2:
-                            st.plotly_chart(fig_bar, use_container_width=True)
-                        
-                        st.plotly_chart(fig_amount, use_container_width=True)
-                        
-                        # Data table with filters
-                        st.divider()
-                        st.subheader("📋 Defaulter Details")
-                        
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            selected_grade = st.selectbox(
-                                "Filter by Grade",
-                                ["All"] + sorted(summary['Grade'].unique().tolist()),
-                                key="egs_grade"
-                            )
-                        with col2:
-                            selected_section = st.selectbox(
-                                "Filter by Section",
-                                ["All"] + sorted(summary['Section'].unique().tolist()),
-                                key="egs_section"
-                            )
-                        with col3:
-                            view_type = st.radio(
-                                "View Type",
-                                ["Teachers View", "Accounts View"],
-                                key="egs_view"
-                            )
-                        
-                        # Filter data
-                        filtered_data = summary.copy()
-                        if selected_grade != "All":
-                            filtered_data = filtered_data[filtered_data['Grade'] == selected_grade]
-                        if selected_section != "All":
-                            filtered_data = filtered_data[filtered_data['Section'] == selected_section]
-                        
-                        # Display appropriate view
-                        if view_type == "Teachers View":
-                            # Get fee columns from the actual data
-                            fee_columns = [col for col in filtered_data.columns 
-                                         if col not in ['Customer ID', 'Student Name', 'Enrollment No', 
-                                                       'Grade', 'Section', 'Total Outstanding']]
-                            display_cols = ['Student Name', 'Enrollment No', 'Grade', 'Section']
-                            for col in fee_columns:
-                                if col in filtered_data.columns:
-                                    filtered_data[col] = filtered_data[col].apply(
-                                        lambda x: 'Unpaid' if x > 0 else 'Paid'
-                                    )
-                                    display_cols.append(col)
-                            st.dataframe(filtered_data[display_cols], use_container_width=True)
-                        else:
-                            st.dataframe(filtered_data, use_container_width=True)
-                    else:
-                        st.info("No defaulters found for Excel Global School")
-                
-                with tab2:
-                    if not results['Excel Central School'].empty:
-                        summary = results['Excel Central School']
-                        
-                        # Metrics
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Total Students", len(summary))
-                        with col2:
-                            defaulters = len(summary[summary['Total Outstanding'] > 0])
-                            st.metric("Defaulters", defaulters)
-                        with col3:
-                            st.metric("Total Outstanding", f"₹{summary['Total Outstanding'].sum():,.0f}")
-                        with col4:
-                            st.metric("Grades Affected", summary['Grade'].nunique())
-                        
-                        # Visualizations
-                        st.divider()
-                        fig_pie, fig_bar, fig_amount = create_visualizations(summary, "Excel Central School")
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.plotly_chart(fig_pie, use_container_width=True)
-                        with col2:
-                            st.plotly_chart(fig_bar, use_container_width=True)
-                        
-                        st.plotly_chart(fig_amount, use_container_width=True)
-                        
-                        # Data table with filters
-                        st.divider()
-                        st.subheader("📋 Defaulter Details")
-                        
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            selected_grade = st.selectbox(
-                                "Filter by Grade",
-                                ["All"] + sorted(summary['Grade'].unique().tolist()),
-                                key="ecs_grade"
-                            )
-                        with col2:
-                            selected_section = st.selectbox(
-                                "Filter by Section",
-                                ["All"] + sorted(summary['Section'].unique().tolist()),
-                                key="ecs_section"
-                            )
-                        with col3:
-                            view_type = st.radio(
-                                "View Type",
-                                ["Teachers View", "Accounts View"],
-                                key="ecs_view"
-                            )
-                        
-                        # Filter data
-                        filtered_data = summary.copy()
-                        if selected_grade != "All":
-                            filtered_data = filtered_data[filtered_data['Grade'] == selected_grade]
-                        if selected_section != "All":
-                            filtered_data = filtered_data[filtered_data['Section'] == selected_section]
-                        
-                        # Display appropriate view
-                        if view_type == "Teachers View":
-                            # Get fee columns from the actual data
-                            fee_columns = [col for col in filtered_data.columns 
-                                         if col not in ['Customer ID', 'Student Name', 'Enrollment No', 
-                                                       'Grade', 'Section', 'Total Outstanding']]
-                            display_cols = ['Student Name', 'Enrollment No', 'Grade', 'Section']
-                            for col in fee_columns:
-                                if col in filtered_data.columns:
-                                    filtered_data[col] = filtered_data[col].apply(
-                                        lambda x: 'Unpaid' if x > 0 else 'Paid'
-                                    )
-                                    display_cols.append(col)
-                            st.dataframe(filtered_data[display_cols], use_container_width=True)
-                        else:
-                            st.dataframe(filtered_data, use_container_width=True)
-                    else:
-                        st.info("No defaulters found for Excel Central School")
-                        
             except Exception as e:
                 st.error(f"❌ Error processing files: {str(e)}")
                 st.exception(e)
     
-    elif process_button:
+    elif st.session_state.processed and st.session_state.results:
+        # Display results from session state
+        results = st.session_state.results
+        zip_data = st.session_state.zip_data
+        
+        # Download button for all reports
+        st.download_button(
+            label="📥 Download All Reports (ZIP)",
+            data=zip_data,
+            file_name=f"fee_defaulter_reports_{date.today().strftime('%Y%m%d')}.zip",
+            mime="application/zip",
+            use_container_width=True
+        )
+        
+        # Tabs for each school
+        tab1, tab2 = st.tabs(["Excel Central School", "Excel Global School"])
+        
+        with tab1:
+            if not results['Excel Central School'].empty:
+                summary = results['Excel Central School']
+                
+                # Metrics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Students", len(summary))
+                with col2:
+                    defaulters = len(summary[summary['Total Outstanding'] > 0])
+                    st.metric("Defaulters", defaulters)
+                with col3:
+                    st.metric("Total Outstanding", f"₹{summary['Total Outstanding'].sum():,.0f}")
+                with col4:
+                    st.metric("Grades Affected", summary['Grade'].nunique())
+                        
+                # Visualizations
+                st.divider()
+                fig_pie, fig_bar, fig_amount = create_visualizations(summary, "Excel Central School")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                with col2:
+                    st.plotly_chart(fig_bar, use_container_width=True)
+                
+                st.plotly_chart(fig_amount, use_container_width=True)
+                        
+                # Data table with filters
+                st.divider()
+                st.subheader("📋 Defaulter Details")
+                
+                # Search bar
+                search_query = st.text_input(
+                    "🔍 Search by Student Name",
+                    placeholder="Type student name to search...",
+                    key="ecs_search"
+                )
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    selected_grade = st.selectbox(
+                        "Filter by Grade",
+                        ["All"] + sorted(summary['Grade'].unique().tolist()),
+                        key="ecs_grade"
+                    )
+                with col2:
+                    selected_section = st.selectbox(
+                        "Filter by Section",
+                        ["All"] + sorted(summary['Section'].unique().tolist()),
+                        key="ecs_section"
+                    )
+                with col3:
+                    view_type = st.selectbox(
+                        "View Type",
+                        ["Teachers View", "Accounts View"],
+                        key="ecs_view"
+                    )
+                
+                # Filter data
+                filtered_data = summary.copy()
+                
+                # Apply search filter
+                if search_query:
+                    filtered_data = filtered_data[
+                        filtered_data['Student Name'].str.contains(search_query, case=False, na=False)
+                    ]
+                
+                if selected_grade != "All":
+                    filtered_data = filtered_data[filtered_data['Grade'] == selected_grade]
+                if selected_section != "All":
+                    filtered_data = filtered_data[filtered_data['Section'] == selected_section]
+                
+                # Display appropriate view
+                if view_type == "Teachers View":
+                    # Get fee columns from the actual data
+                    fee_columns = [col for col in filtered_data.columns 
+                                 if col not in ['Customer ID', 'Student Name', 'Enrollment No', 
+                                               'Grade', 'Section', 'Total Outstanding']]
+                    display_cols = ['Student Name', 'Enrollment No', 'Grade', 'Section']
+                    for col in fee_columns:
+                        if col in filtered_data.columns:
+                            filtered_data[col] = filtered_data[col].apply(
+                                lambda x: 'Unpaid' if x > 0 else 'Paid'
+                            )
+                            display_cols.append(col)
+                    st.dataframe(filtered_data[display_cols], use_container_width=True)
+                else:
+                    st.dataframe(filtered_data, use_container_width=True)
+            else:
+                st.info("No defaulters found for Excel Central School")
+        
+        with tab2:
+            if not results['Excel Global School'].empty:
+                summary = results['Excel Global School']
+                
+                # Metrics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Students", len(summary))
+                with col2:
+                    defaulters = len(summary[summary['Total Outstanding'] > 0])
+                    st.metric("Defaulters", defaulters)
+                with col3:
+                    st.metric("Total Outstanding", f"₹{summary['Total Outstanding'].sum():,.0f}")
+                with col4:
+                    st.metric("Grades Affected", summary['Grade'].nunique())
+                        
+                # Visualizations
+                st.divider()
+                fig_pie, fig_bar, fig_amount = create_visualizations(summary, "Excel Global School")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                with col2:
+                    st.plotly_chart(fig_bar, use_container_width=True)
+                
+                st.plotly_chart(fig_amount, use_container_width=True)
+                
+                # Data table with filters
+                st.divider()
+                st.subheader("📋 Defaulter Details")
+                
+                # Search bar
+                search_query = st.text_input(
+                    "🔍 Search by Student Name",
+                    placeholder="Type student name to search...",
+                    key="egs_search"
+                )
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    selected_grade = st.selectbox(
+                        "Filter by Grade",
+                        ["All"] + sorted(summary['Grade'].unique().tolist()),
+                        key="egs_grade"
+                    )
+                with col2:
+                    selected_section = st.selectbox(
+                        "Filter by Section",
+                        ["All"] + sorted(summary['Section'].unique().tolist()),
+                        key="egs_section"
+                    )
+                with col3:
+                    view_type = st.selectbox(
+                        "View Type",
+                        ["Teachers View", "Accounts View"],
+                        key="egs_view"
+                    )
+                
+                # Filter data
+                filtered_data = summary.copy()
+                
+                # Apply search filter
+                if search_query:
+                    filtered_data = filtered_data[
+                        filtered_data['Student Name'].str.contains(search_query, case=False, na=False)
+                    ]
+                
+                if selected_grade != "All":
+                    filtered_data = filtered_data[filtered_data['Grade'] == selected_grade]
+                if selected_section != "All":
+                    filtered_data = filtered_data[filtered_data['Section'] == selected_section]
+                
+                # Display appropriate view
+                if view_type == "Teachers View":
+                    # Get fee columns from the actual data
+                    fee_columns = [col for col in filtered_data.columns 
+                                 if col not in ['Customer ID', 'Student Name', 'Enrollment No', 
+                                               'Grade', 'Section', 'Total Outstanding']]
+                    display_cols = ['Student Name', 'Enrollment No', 'Grade', 'Section']
+                    for col in fee_columns:
+                        if col in filtered_data.columns:
+                            filtered_data[col] = filtered_data[col].apply(
+                                lambda x: 'Unpaid' if x > 0 else 'Paid'
+                            )
+                            display_cols.append(col)
+                    st.dataframe(filtered_data[display_cols], use_container_width=True)
+                else:
+                    st.dataframe(filtered_data, use_container_width=True)
+            else:
+                st.info("No defaulters found for Excel Global School")
+    
+    elif process_button and (not contacts_file or not invoices_file):
         st.warning("⚠️ Please upload both CSV files before processing")
     
     else:
