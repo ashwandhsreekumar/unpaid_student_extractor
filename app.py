@@ -102,7 +102,7 @@ def process_uploaded_files(contacts_file, invoices_file):
         with open(invoices_path, "wb") as f:
             f.write(invoices_file.getbuffer())
         
-        # Run extraction
+        # Run extraction with fixed logic
         extractor = FeeDefaulterExtractor(
             contacts_path=contacts_path,
             invoices_path=invoices_path,
@@ -111,7 +111,10 @@ def process_uploaded_files(contacts_file, invoices_file):
         
         # Load and process data
         extractor.load_data()
+        # Process invoices with proportional balance allocation
         defaulter_invoices = extractor.process_invoices()
+        
+        # Note: Stats will be shown in the console/logs, not in the UI during processing
         
         # Process each school
         results = {}
@@ -201,7 +204,7 @@ def main():
                 st.session_state.results = results
                 st.session_state.zip_data = zip_data
                 
-                st.success("✅ Files processed successfully!")
+                st.success("✅ Files processed successfully! Using proportional balance allocation for accurate calculations.")
                 st.rerun()
                 
             except Exception as e:

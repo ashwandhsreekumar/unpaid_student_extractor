@@ -7,7 +7,12 @@
       "Bash(streamlit run:*)",
       "Bash(pkill:*)",
       "Bash(sed:*)",
-      "Bash(git init:*)"
+      "Bash(git init:*)",
+      "Bash(python3:*)",
+      "Bash(source:*)",
+      "Bash(python:*)",
+      "Bash(cp:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }

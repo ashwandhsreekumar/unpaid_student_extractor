@@ -83,7 +83,7 @@ class FeeDefaulterExtractor:
         return columns
     
     def process_invoices(self):
-        """Process invoices to identify defaulters"""
+        """Process invoices to identify defaulters and handle duplicate balances"""
         print("Processing invoices...")
         
         # Filter for overdue and partially paid invoices
@@ -105,7 +105,11 @@ class FeeDefaulterExtractor:
                 (partially_paid_mask & past_due_mask)
             ]
         
-        print(f"Found {len(defaulter_invoices)} overdue invoice entries")
+        print(f"Found {len(defaulter_invoices)} overdue invoice line items")
+        
+        # Get unique invoices count for reporting
+        unique_invoices = defaulter_invoices['Invoice Number'].nunique()
+        print(f"Found {unique_invoices} unique overdue invoices")
         
         # Merge with contacts to get student details
         defaulter_invoices = defaulter_invoices.merge(
@@ -122,6 +126,26 @@ class FeeDefaulterExtractor:
         ).str.strip()
         
         defaulter_invoices['Enrollment No'] = defaulter_invoices['CF.Enrollment Code'].fillna('')
+        
+        # CRITICAL FIX: Allocate balance proportionally to each line item
+        # Group by invoice to calculate proportional balance for each line item
+        invoice_groups = defaulter_invoices.groupby('Invoice Number')
+        
+        def allocate_balance(group):
+            """Allocate invoice balance proportionally to each line item based on item total"""
+            invoice_balance = group['Balance'].iloc[0]  # Same for all items in invoice
+            total_items_value = group['Item Total'].sum()
+            
+            if total_items_value > 0:
+                # Allocate balance proportionally
+                group['Allocated Balance'] = (group['Item Total'] / total_items_value) * invoice_balance
+            else:
+                # If no item totals, distribute equally
+                group['Allocated Balance'] = invoice_balance / len(group)
+            
+            return group
+        
+        defaulter_invoices = invoice_groups.apply(allocate_balance).reset_index(drop=True)
         
         return defaulter_invoices
     
@@ -202,23 +226,27 @@ class FeeDefaulterExtractor:
                 all_invoices_for_defaulters['Customer ID'] == customer_id
             ]
             
-            # For each fee column, check payment status
+            # For each fee column, check payment status using ALLOCATED BALANCE
             for col in due_columns:
-                # Check overdue invoices for this fee type
-                overdue_amount = group[group['Fee Type'] == col]['Balance'].sum()
+                # Use allocated balance for overdue items
+                overdue_fee_items = group[group['Fee Type'] == col]
+                if len(overdue_fee_items) > 0:
+                    # Use the allocated balance (proportional to item total)
+                    overdue_amount = overdue_fee_items['Allocated Balance'].sum()
+                else:
+                    overdue_amount = 0
                 
                 # Check if there are ANY invoices (paid or unpaid) for this fee type
                 all_fee_invoices = student_all_invoices[student_all_invoices['Fee Type'] == col]
                 
                 if len(all_fee_invoices) > 0:
-                    # Check if all invoices for this fee are paid (Balance = 0 or Status = Closed/Paid)
-                    total_balance = all_fee_invoices['Balance'].sum()
+                    # Check if fee is paid
                     has_closed = any(all_fee_invoices['Invoice Status'].isin(['Closed', 'Paid']))
                     
                     if overdue_amount > 0:
                         # Has overdue amount
                         student_data[col] = overdue_amount
-                    elif has_closed or total_balance == 0:
+                    elif has_closed:
                         # Fee has been paid
                         student_data[col] = -1  # Use -1 to indicate paid
                     else:
