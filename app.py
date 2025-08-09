@@ -32,8 +32,8 @@ def format_indian_currency(amount):
 
 # Page configuration
 st.set_page_config(
-    page_title="Fee Defaulter Extraction System",
-    page_icon="📊",
+    page_title="Fee Defaulter Finder",
+    page_icon="🎓",
     layout="wide"
 )
 
@@ -187,8 +187,8 @@ def process_uploaded_files(contacts_file, invoices_file):
         return results, zip_data, school_stats
 
 def main():
-    st.title("📊 Fee Defaulter Extraction System")
-    st.markdown("### K-12 School Fee Management Portal")
+    st.title("🎓 Fee Defaulter Finder")
+    st.markdown("### Excel Group of Schools - Fee Management System")
     
     # Initialize session state
     if 'processed' not in st.session_state:
@@ -491,9 +491,9 @@ def main():
     else:
         # Welcome screen
         st.markdown("""
-        ## Welcome to the Fee Defaulter Extraction System
+        ## Welcome to Fee Defaulter Finder
         
-        This application helps K-12 schools identify and manage fee defaulters efficiently.
+        This application helps Excel Group of Schools identify and manage pending fee payments efficiently.
         
         ### Features:
         - 📊 **Automatic Extraction**: Identifies students with overdue fees
