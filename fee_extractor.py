@@ -341,12 +341,12 @@ class FeeDefaulterExtractor:
 
 def main():
     """Main function to run the extractor"""
-    base_path = '/Users/digital-synapses/code/accounts/unpaid_student_extractor'
+    base_path = Path(__file__).parent
     
     extractor = FeeDefaulterExtractor(
-        contacts_path=f'{base_path}/input/Contacts.csv',
-        invoices_path=f'{base_path}/input/Invoice.csv',
-        output_base_path=f'{base_path}/output'
+        contacts_path=base_path / 'input' / 'Contacts.csv',
+        invoices_path=base_path / 'input' / 'Invoice.csv',
+        output_base_path=base_path / 'output'
     )
     
     extractor.run()
