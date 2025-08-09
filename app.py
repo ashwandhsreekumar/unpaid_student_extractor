@@ -9,6 +9,27 @@ import tempfile
 import zipfile
 from fee_extractor import FeeDefaulterExtractor
 
+def format_indian_currency(amount):
+    """Format number in Indian currency style (lakhs and crores)"""
+    amount = int(amount)
+    
+    if amount < 0:
+        return f"-₹{format_indian_currency(-amount)[1:]}"
+    
+    # Convert to string and reverse for easier processing
+    s = str(amount)[::-1]
+    
+    # Add commas - first after 3 digits, then every 2 digits
+    result = []
+    for i, digit in enumerate(s):
+        if i == 3:
+            result.append(',')
+        elif i > 3 and (i - 3) % 2 == 0:
+            result.append(',')
+        result.append(digit)
+    
+    return f"₹{(''.join(result))[::-1]}"
+
 # Page configuration
 st.set_page_config(
     page_title="Fee Defaulter Extraction System",
@@ -84,7 +105,13 @@ def create_visualizations(summary_data, school_name):
         color_continuous_scale='Blues',
         text='Total Outstanding'
     )
-    fig_amount.update_traces(texttemplate='₹%{text:,.0f}', textposition='outside')
+    # Format text for Indian currency in the chart
+    grade_amounts['Total Outstanding Text'] = grade_amounts['Total Outstanding'].apply(format_indian_currency)
+    fig_amount.update_traces(
+        text=grade_amounts['Total Outstanding Text'],
+        texttemplate='%{text}',
+        textposition='outside'
+    )
     fig_amount.update_layout(height=400)
     
     return fig_pie, fig_bar, fig_amount
@@ -240,7 +267,7 @@ def main():
                     defaulters = len(summary[summary['Total Outstanding'] > 0])
                     st.metric("Defaulters", defaulters)
                 with col3:
-                    st.metric("Total Outstanding", f"₹{summary['Total Outstanding'].sum():,.0f}")
+                    st.metric("Total Outstanding", format_indian_currency(summary['Total Outstanding'].sum()))
                 with col4:
                     st.metric("Grades Affected", summary['Grade'].nunique())
                         
@@ -316,7 +343,17 @@ def main():
                             display_cols.append(col)
                     st.dataframe(filtered_data[display_cols], use_container_width=True)
                 else:
-                    st.dataframe(filtered_data, use_container_width=True)
+                    # Format currency columns for display
+                    display_data = filtered_data.copy()
+                    currency_cols = [col for col in display_data.columns 
+                                   if col not in ['Customer ID', 'Student Name', 'Enrollment No', 
+                                                 'Grade', 'Section']]
+                    for col in currency_cols:
+                        if col in display_data.columns and display_data[col].dtype in ['int64', 'float64']:
+                            display_data[col] = display_data[col].apply(
+                                lambda x: format_indian_currency(x) if x > 0 else '₹0' if x == 0 else ''
+                            )
+                    st.dataframe(display_data, use_container_width=True)
             else:
                 st.info("No defaulters found for Excel Central School")
         
@@ -332,7 +369,7 @@ def main():
                     defaulters = len(summary[summary['Total Outstanding'] > 0])
                     st.metric("Defaulters", defaulters)
                 with col3:
-                    st.metric("Total Outstanding", f"₹{summary['Total Outstanding'].sum():,.0f}")
+                    st.metric("Total Outstanding", format_indian_currency(summary['Total Outstanding'].sum()))
                 with col4:
                     st.metric("Grades Affected", summary['Grade'].nunique())
                         
@@ -408,7 +445,17 @@ def main():
                             display_cols.append(col)
                     st.dataframe(filtered_data[display_cols], use_container_width=True)
                 else:
-                    st.dataframe(filtered_data, use_container_width=True)
+                    # Format currency columns for display
+                    display_data = filtered_data.copy()
+                    currency_cols = [col for col in display_data.columns 
+                                   if col not in ['Customer ID', 'Student Name', 'Enrollment No', 
+                                                 'Grade', 'Section']]
+                    for col in currency_cols:
+                        if col in display_data.columns and display_data[col].dtype in ['int64', 'float64']:
+                            display_data[col] = display_data[col].apply(
+                                lambda x: format_indian_currency(x) if x > 0 else '₹0' if x == 0 else ''
+                            )
+                    st.dataframe(display_data, use_container_width=True)
             else:
                 st.info("No defaulters found for Excel Global School")
     
