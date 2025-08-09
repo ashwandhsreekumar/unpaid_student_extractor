@@ -1,0 +1,383 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import date
+import os
+from pathlib import Path
+import tempfile
+import zipfile
+from fee_extractor import FeeDefaulterExtractor
+
+# Page configuration
+st.set_page_config(
+    page_title="Fee Defaulter Extraction System",
+    page_icon="📊",
+    layout="wide"
+)
+
+# Custom CSS
+st.markdown("""
+    <style>
+    .stMetric {
+        background-color: #f0f2f6;
+        padding: 10px;
+        border-radius: 5px;
+    }
+    .success-box {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+    }
+    .error-box {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+def create_visualizations(summary_data, school_name):
+    """Create visualizations for the dashboard"""
+    if summary_data.empty:
+        return None, None, None
+    
+    # Payment status distribution
+    total_students = len(summary_data)
+    defaulters = len(summary_data[summary_data['Total Outstanding'] > 0])
+    
+    fig_pie = go.Figure(data=[go.Pie(
+        labels=['Defaulters', 'Paid'],
+        values=[defaulters, total_students - defaulters],
+        hole=.3,
+        marker_colors=['#ff6b6b', '#51cf66']
+    )])
+    fig_pie.update_layout(
+        title=f"Payment Status Distribution - {school_name}",
+        height=400
+    )
+    
+    # Defaulters by grade
+    grade_counts = summary_data[summary_data['Total Outstanding'] > 0].groupby('Grade').size().reset_index(name='Count')
+    fig_bar = px.bar(
+        grade_counts, 
+        x='Grade', 
+        y='Count',
+        title=f"Defaulters by Grade - {school_name}",
+        color='Count',
+        color_continuous_scale='Reds'
+    )
+    fig_bar.update_layout(height=400)
+    
+    # Outstanding amount by grade
+    grade_amounts = summary_data.groupby('Grade')['Total Outstanding'].sum().reset_index()
+    fig_amount = px.bar(
+        grade_amounts,
+        x='Grade',
+        y='Total Outstanding',
+        title=f"Outstanding Amount by Grade - {school_name}",
+        color='Total Outstanding',
+        color_continuous_scale='Blues',
+        text='Total Outstanding'
+    )
+    fig_amount.update_traces(texttemplate='₹%{text:,.0f}', textposition='outside')
+    fig_amount.update_layout(height=400)
+    
+    return fig_pie, fig_bar, fig_amount
+
+def process_uploaded_files(contacts_file, invoices_file):
+    """Process uploaded files and generate reports"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Save uploaded files
+        contacts_path = os.path.join(temp_dir, "Contacts.csv")
+        invoices_path = os.path.join(temp_dir, "Invoice.csv")
+        output_path = os.path.join(temp_dir, "output")
+        
+        with open(contacts_path, "wb") as f:
+            f.write(contacts_file.getbuffer())
+        with open(invoices_path, "wb") as f:
+            f.write(invoices_file.getbuffer())
+        
+        # Run extraction
+        extractor = FeeDefaulterExtractor(
+            contacts_path=contacts_path,
+            invoices_path=invoices_path,
+            output_base_path=output_path
+        )
+        
+        # Load and process data
+        extractor.load_data()
+        defaulter_invoices = extractor.process_invoices()
+        
+        # Process each school
+        results = {}
+        for school in ['Excel Global School', 'Excel Central School']:
+            summary_df = extractor.create_student_summary(defaulter_invoices, school)
+            if not summary_df.empty:
+                extractor.save_reports(summary_df, school)
+                results[school] = summary_df
+            else:
+                results[school] = pd.DataFrame()
+        
+        # Create zip file with all reports
+        zip_path = os.path.join(temp_dir, "fee_defaulter_reports.zip")
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(output_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, output_path)
+                    zipf.write(file_path, arcname)
+        
+        with open(zip_path, "rb") as f:
+            zip_data = f.read()
+        
+        return results, zip_data
+
+def main():
+    st.title("📊 Fee Defaulter Extraction System")
+    st.markdown("### K-12 School Fee Management Portal")
+    
+    # Sidebar
+    with st.sidebar:
+        st.header("📁 Upload Files")
+        
+        contacts_file = st.file_uploader(
+            "Upload Contacts.csv",
+            type=['csv'],
+            help="Upload the contacts CSV file from Zoho Books"
+        )
+        
+        invoices_file = st.file_uploader(
+            "Upload Invoice.csv",
+            type=['csv'],
+            help="Upload the invoice CSV file from Zoho Books"
+        )
+        
+        process_button = st.button("🚀 Process Files", type="primary", use_container_width=True)
+        
+        st.divider()
+        
+        st.info(f"**Current Date:** {date.today().strftime('%B %d, %Y')}")
+        
+        st.markdown("""
+        ### 📋 Instructions
+        1. Upload both CSV files
+        2. Click 'Process Files'
+        3. View results and download reports
+        
+        ### 📊 Report Types
+        - **Teachers Report**: Shows payment status (Paid/Unpaid)
+        - **Accounts Report**: Shows outstanding amounts
+        """)
+    
+    # Main content area
+    if process_button and contacts_file and invoices_file:
+        with st.spinner("Processing files..."):
+            try:
+                results, zip_data = process_uploaded_files(contacts_file, invoices_file)
+                
+                st.success("✅ Files processed successfully!")
+                
+                # Download button for all reports
+                st.download_button(
+                    label="📥 Download All Reports (ZIP)",
+                    data=zip_data,
+                    file_name=f"fee_defaulter_reports_{date.today().strftime('%Y%m%d')}.zip",
+                    mime="application/zip",
+                    use_container_width=True
+                )
+                
+                # Tabs for each school
+                tab1, tab2 = st.tabs(["Excel Global School", "Excel Central School"])
+                
+                with tab1:
+                    if not results['Excel Global School'].empty:
+                        summary = results['Excel Global School']
+                        
+                        # Metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Total Students", len(summary))
+                        with col2:
+                            defaulters = len(summary[summary['Total Outstanding'] > 0])
+                            st.metric("Defaulters", defaulters)
+                        with col3:
+                            st.metric("Total Outstanding", f"₹{summary['Total Outstanding'].sum():,.0f}")
+                        with col4:
+                            st.metric("Grades Affected", summary['Grade'].nunique())
+                        
+                        # Visualizations
+                        st.divider()
+                        fig_pie, fig_bar, fig_amount = create_visualizations(summary, "Excel Global School")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.plotly_chart(fig_pie, use_container_width=True)
+                        with col2:
+                            st.plotly_chart(fig_bar, use_container_width=True)
+                        
+                        st.plotly_chart(fig_amount, use_container_width=True)
+                        
+                        # Data table with filters
+                        st.divider()
+                        st.subheader("📋 Defaulter Details")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            selected_grade = st.selectbox(
+                                "Filter by Grade",
+                                ["All"] + sorted(summary['Grade'].unique().tolist()),
+                                key="egs_grade"
+                            )
+                        with col2:
+                            selected_section = st.selectbox(
+                                "Filter by Section",
+                                ["All"] + sorted(summary['Section'].unique().tolist()),
+                                key="egs_section"
+                            )
+                        with col3:
+                            view_type = st.radio(
+                                "View Type",
+                                ["Teachers View", "Accounts View"],
+                                key="egs_view"
+                            )
+                        
+                        # Filter data
+                        filtered_data = summary.copy()
+                        if selected_grade != "All":
+                            filtered_data = filtered_data[filtered_data['Grade'] == selected_grade]
+                        if selected_section != "All":
+                            filtered_data = filtered_data[filtered_data['Section'] == selected_section]
+                        
+                        # Display appropriate view
+                        if view_type == "Teachers View":
+                            # Get fee columns from the actual data
+                            fee_columns = [col for col in filtered_data.columns 
+                                         if col not in ['Customer ID', 'Student Name', 'Enrollment No', 
+                                                       'Grade', 'Section', 'Total Outstanding']]
+                            display_cols = ['Student Name', 'Enrollment No', 'Grade', 'Section']
+                            for col in fee_columns:
+                                if col in filtered_data.columns:
+                                    filtered_data[col] = filtered_data[col].apply(
+                                        lambda x: 'Unpaid' if x > 0 else 'Paid'
+                                    )
+                                    display_cols.append(col)
+                            st.dataframe(filtered_data[display_cols], use_container_width=True)
+                        else:
+                            st.dataframe(filtered_data, use_container_width=True)
+                    else:
+                        st.info("No defaulters found for Excel Global School")
+                
+                with tab2:
+                    if not results['Excel Central School'].empty:
+                        summary = results['Excel Central School']
+                        
+                        # Metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Total Students", len(summary))
+                        with col2:
+                            defaulters = len(summary[summary['Total Outstanding'] > 0])
+                            st.metric("Defaulters", defaulters)
+                        with col3:
+                            st.metric("Total Outstanding", f"₹{summary['Total Outstanding'].sum():,.0f}")
+                        with col4:
+                            st.metric("Grades Affected", summary['Grade'].nunique())
+                        
+                        # Visualizations
+                        st.divider()
+                        fig_pie, fig_bar, fig_amount = create_visualizations(summary, "Excel Central School")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.plotly_chart(fig_pie, use_container_width=True)
+                        with col2:
+                            st.plotly_chart(fig_bar, use_container_width=True)
+                        
+                        st.plotly_chart(fig_amount, use_container_width=True)
+                        
+                        # Data table with filters
+                        st.divider()
+                        st.subheader("📋 Defaulter Details")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            selected_grade = st.selectbox(
+                                "Filter by Grade",
+                                ["All"] + sorted(summary['Grade'].unique().tolist()),
+                                key="ecs_grade"
+                            )
+                        with col2:
+                            selected_section = st.selectbox(
+                                "Filter by Section",
+                                ["All"] + sorted(summary['Section'].unique().tolist()),
+                                key="ecs_section"
+                            )
+                        with col3:
+                            view_type = st.radio(
+                                "View Type",
+                                ["Teachers View", "Accounts View"],
+                                key="ecs_view"
+                            )
+                        
+                        # Filter data
+                        filtered_data = summary.copy()
+                        if selected_grade != "All":
+                            filtered_data = filtered_data[filtered_data['Grade'] == selected_grade]
+                        if selected_section != "All":
+                            filtered_data = filtered_data[filtered_data['Section'] == selected_section]
+                        
+                        # Display appropriate view
+                        if view_type == "Teachers View":
+                            # Get fee columns from the actual data
+                            fee_columns = [col for col in filtered_data.columns 
+                                         if col not in ['Customer ID', 'Student Name', 'Enrollment No', 
+                                                       'Grade', 'Section', 'Total Outstanding']]
+                            display_cols = ['Student Name', 'Enrollment No', 'Grade', 'Section']
+                            for col in fee_columns:
+                                if col in filtered_data.columns:
+                                    filtered_data[col] = filtered_data[col].apply(
+                                        lambda x: 'Unpaid' if x > 0 else 'Paid'
+                                    )
+                                    display_cols.append(col)
+                            st.dataframe(filtered_data[display_cols], use_container_width=True)
+                        else:
+                            st.dataframe(filtered_data, use_container_width=True)
+                    else:
+                        st.info("No defaulters found for Excel Central School")
+                        
+            except Exception as e:
+                st.error(f"❌ Error processing files: {str(e)}")
+                st.exception(e)
+    
+    elif process_button:
+        st.warning("⚠️ Please upload both CSV files before processing")
+    
+    else:
+        # Welcome screen
+        st.markdown("""
+        ## Welcome to the Fee Defaulter Extraction System
+        
+        This application helps K-12 schools identify and manage fee defaulters efficiently.
+        
+        ### Features:
+        - 📊 **Automatic Extraction**: Identifies students with overdue fees
+        - 🏫 **Multi-School Support**: Handles both Excel Global School and Excel Central School
+        - 📅 **Dynamic Date Handling**: Shows only fees due up to current date
+        - 👩‍🏫 **Teacher Reports**: Simple payment status view for class teachers
+        - 💰 **Accounts Reports**: Detailed outstanding amounts for accounts team
+        - 📈 **Visual Analytics**: Charts and graphs for quick insights
+        - 📥 **Export Options**: Download reports in CSV format
+        
+        ### Get Started:
+        1. Upload your Contacts.csv and Invoice.csv files using the sidebar
+        2. Click the "Process Files" button
+        3. View and download the generated reports
+        """)
+
+if __name__ == "__main__":
+    main()
