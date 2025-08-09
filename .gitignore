@@ -1,0 +1,34 @@
+# Python
+*.pyc
+__pycache__/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# Data files
+*.csv
+input/
+output/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+temp/
+tmp/
