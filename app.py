@@ -62,18 +62,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-def create_visualizations(summary_data, school_name):
+def create_visualizations(summary_data, school_name, total_students=None):
     """Create visualizations for the dashboard"""
-    if summary_data.empty:
+    if summary_data.empty and not total_students:
         return None, None, None
     
     # Payment status distribution
-    total_students = len(summary_data)
-    defaulters = len(summary_data[summary_data['Total Outstanding'] > 0])
+    # If total_students is provided, use it; otherwise use summary data length
+    if total_students:
+        defaulters = len(summary_data) if not summary_data.empty else 0
+        paid_students = total_students - defaulters
+    else:
+        # Fallback to old logic
+        total_students = len(summary_data)
+        defaulters = len(summary_data[summary_data['Total Outstanding'] > 0])
+        paid_students = total_students - defaulters
     
     fig_pie = go.Figure(data=[go.Pie(
         labels=['Defaulters', 'Paid'],
-        values=[defaulters, total_students - defaulters],
+        values=[defaulters, paid_students],
         hole=.3,
         marker_colors=['#ff6b6b', '#51cf66']
     )])
@@ -145,13 +152,25 @@ def process_uploaded_files(contacts_file, invoices_file):
         
         # Process each school
         results = {}
+        school_stats = {}
         for school in ['Excel Global School', 'Excel Central School']:
             summary_df = extractor.create_student_summary(defaulter_invoices, school)
+            
+            # Get total students in school from contacts
+            school_total = len(extractor.contacts_df[
+                extractor.contacts_df['School'] == school
+            ]['Contact ID'].unique())
+            
             if not summary_df.empty:
                 extractor.save_reports(summary_df, school)
                 results[school] = summary_df
             else:
                 results[school] = pd.DataFrame()
+            
+            school_stats[school] = {
+                'total_students': school_total,
+                'defaulters': len(summary_df) if not summary_df.empty else 0
+            }
         
         # Create zip file with all reports
         zip_path = os.path.join(temp_dir, "fee_defaulter_reports.zip")
@@ -165,7 +184,7 @@ def process_uploaded_files(contacts_file, invoices_file):
         with open(zip_path, "rb") as f:
             zip_data = f.read()
         
-        return results, zip_data
+        return results, zip_data, school_stats
 
 def main():
     st.title("📊 Fee Defaulter Extraction System")
@@ -176,6 +195,7 @@ def main():
         st.session_state.processed = False
         st.session_state.results = None
         st.session_state.zip_data = None
+        st.session_state.school_stats = None
     
     # Sidebar
     with st.sidebar:
@@ -203,6 +223,7 @@ def main():
                 st.session_state.processed = False
                 st.session_state.results = None
                 st.session_state.zip_data = None
+                st.session_state.school_stats = None
                 st.rerun()
         
         st.divider()
@@ -224,12 +245,13 @@ def main():
     if process_button and contacts_file and invoices_file:
         with st.spinner("Processing files..."):
             try:
-                results, zip_data = process_uploaded_files(contacts_file, invoices_file)
+                results, zip_data, school_stats = process_uploaded_files(contacts_file, invoices_file)
                 
                 # Store in session state
                 st.session_state.processed = True
                 st.session_state.results = results
                 st.session_state.zip_data = zip_data
+                st.session_state.school_stats = school_stats
                 
                 st.success("✅ Files processed successfully! Using proportional balance allocation for accurate calculations.")
                 st.rerun()
@@ -262,7 +284,8 @@ def main():
                 # Metrics
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Total Students", len(summary))
+                    total_in_school = st.session_state.school_stats['Excel Central School']['total_students'] if st.session_state.school_stats else len(summary)
+                    st.metric("Total Students", total_in_school)
                 with col2:
                     defaulters = len(summary[summary['Total Outstanding'] > 0])
                     st.metric("Defaulters", defaulters)
@@ -273,7 +296,8 @@ def main():
                         
                 # Visualizations
                 st.divider()
-                fig_pie, fig_bar, fig_amount = create_visualizations(summary, "Excel Central School")
+                total_students = st.session_state.school_stats['Excel Central School']['total_students'] if st.session_state.school_stats else None
+                fig_pie, fig_bar, fig_amount = create_visualizations(summary, "Excel Central School", total_students)
                 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -364,7 +388,8 @@ def main():
                 # Metrics
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Total Students", len(summary))
+                    total_in_school = st.session_state.school_stats['Excel Global School']['total_students'] if st.session_state.school_stats else len(summary)
+                    st.metric("Total Students", total_in_school)
                 with col2:
                     defaulters = len(summary[summary['Total Outstanding'] > 0])
                     st.metric("Defaulters", defaulters)
@@ -375,7 +400,8 @@ def main():
                         
                 # Visualizations
                 st.divider()
-                fig_pie, fig_bar, fig_amount = create_visualizations(summary, "Excel Global School")
+                total_students = st.session_state.school_stats['Excel Global School']['total_students'] if st.session_state.school_stats else None
+                fig_pie, fig_bar, fig_amount = create_visualizations(summary, "Excel Global School", total_students)
                 
                 col1, col2 = st.columns(2)
                 with col1:
