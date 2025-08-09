@@ -131,7 +131,7 @@ def create_visualizations(summary_data, school_name, total_students=None):
         texttemplate='%{text}',
         textposition='outside'
     )
-    fig_amount.update_layout(height=400)
+    fig_amount.update_layout(height=600)
     fig_amount.update_xaxes(categoryorder='array', categoryarray=[g for g in grade_order if g in grade_amounts['Grade'].values])
     
     return fig_pie, fig_bar, fig_amount
