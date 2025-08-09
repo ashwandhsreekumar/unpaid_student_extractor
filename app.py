@@ -67,6 +67,9 @@ def create_visualizations(summary_data, school_name, total_students=None):
     if summary_data.empty and not total_students:
         return None, None, None
     
+    # Define proper grade order
+    grade_order = ['Pre-KG', 'LKG', 'UKG'] + [f'Grade {str(i).zfill(2)}' for i in range(1, 13)]
+    
     # Payment status distribution
     # If total_students is provided, use it; otherwise use summary data length
     if total_students:
@@ -91,6 +94,10 @@ def create_visualizations(summary_data, school_name, total_students=None):
     
     # Defaulters by grade
     grade_counts = summary_data[summary_data['Total Outstanding'] > 0].groupby('Grade').size().reset_index(name='Count')
+    # Sort by grade order
+    grade_counts['Grade_Order'] = grade_counts['Grade'].map({grade: i for i, grade in enumerate(grade_order)})
+    grade_counts = grade_counts.sort_values('Grade_Order')
+    
     fig_bar = px.bar(
         grade_counts, 
         x='Grade', 
@@ -100,9 +107,14 @@ def create_visualizations(summary_data, school_name, total_students=None):
         color_continuous_scale='RdYlGn_r'
     )
     fig_bar.update_layout(height=400)
+    fig_bar.update_xaxes(categoryorder='array', categoryarray=[g for g in grade_order if g in grade_counts['Grade'].values])
     
     # Outstanding amount by grade
     grade_amounts = summary_data.groupby('Grade')['Total Outstanding'].sum().reset_index()
+    # Sort by grade order
+    grade_amounts['Grade_Order'] = grade_amounts['Grade'].map({grade: i for i, grade in enumerate(grade_order)})
+    grade_amounts = grade_amounts.sort_values('Grade_Order')
+    
     fig_amount = px.bar(
         grade_amounts,
         x='Grade',
@@ -120,6 +132,7 @@ def create_visualizations(summary_data, school_name, total_students=None):
         textposition='outside'
     )
     fig_amount.update_layout(height=400)
+    fig_amount.update_xaxes(categoryorder='array', categoryarray=[g for g in grade_order if g in grade_amounts['Grade'].values])
     
     return fig_pie, fig_bar, fig_amount
 
