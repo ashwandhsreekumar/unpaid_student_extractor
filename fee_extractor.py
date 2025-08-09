@@ -209,6 +209,9 @@ class FeeDefaulterExtractor:
         )
         
         # Group by student and grade/section
+        # IMPORTANT: Fill NaN sections before groupby to avoid pandas bug with NaN grouping
+        school_invoices['Section'] = school_invoices['Section'].fillna('General')
+        
         grouped = []
         for (customer_id, grade, section), group in school_invoices.groupby(
             ['Customer ID', 'Grade', 'Section']
