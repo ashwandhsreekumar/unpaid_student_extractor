@@ -210,7 +210,7 @@ class FeeDefaulterExtractor:
         
         # Group by student and grade/section
         # IMPORTANT: Fill NaN sections before groupby to avoid pandas bug with NaN grouping
-        school_invoices['Section'] = school_invoices['Section'].fillna('General')
+        school_invoices['Section'] = school_invoices['Section'].fillna('-')
         
         grouped = []
         for (customer_id, grade, section), group in school_invoices.groupby(
@@ -221,7 +221,7 @@ class FeeDefaulterExtractor:
                 'Student Name': group['Student Name'].iloc[0],
                 'Enrollment No': group['Enrollment No'].iloc[0],
                 'Grade': grade,
-                'Section': section if pd.notna(section) else 'General'
+                'Section': section if pd.notna(section) else '-'
             }
             
             # Get all invoices for this student
@@ -313,7 +313,7 @@ class FeeDefaulterExtractor:
         for (grade, section), group_df in summary_df.groupby(['Grade', 'Section']):
             # Clean grade and section names for folder/file names
             grade_clean = str(grade).replace('/', '_').strip()
-            section_clean = str(section).replace('/', '_').strip() if pd.notna(section) else 'General'
+            section_clean = str(section).replace('/', '_').strip() if pd.notna(section) else '-'
             
             # Create descriptive filename
             school_prefix = 'EGS' if school == 'Excel Global School' else 'ECS'
