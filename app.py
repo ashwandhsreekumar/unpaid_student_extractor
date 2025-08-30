@@ -188,7 +188,8 @@ def process_uploaded_files(contacts_file, invoices_file):
             }
         
         # Process payment analytics data - pass the contacts data for accurate counts
-        payment_analytics = extractor.create_payment_analytics(extractor.contacts_df, defaulter_invoices)
+        # Note: create_payment_analytics method doesn't exist in FeeDefaulterExtractor
+        payment_analytics = None
 
         # Create ZIP file for downloads
         zip_buffer = io.BytesIO()
@@ -801,7 +802,7 @@ def main():
         
         with tab3:
             # Payment Analytics Tab
-            if st.session_state.payment_analytics:
+            if st.session_state.payment_analytics and st.session_state.payment_analytics is not None:
                 analytics = st.session_state.payment_analytics
                 
                 st.markdown("## 📊 Payment Collections Dashboard")
@@ -1138,7 +1139,10 @@ def create_payment_summary_table(school_name, analytics, session_state):
         
         # Show summary metrics
         st.markdown(f"**Overall Payment Rate: {(grand_total_paid/grand_total_students*100):.1f}%** ({grand_total_paid} out of {grand_total_students} students)")
-    
+
+            else:
+                st.info("📊 Payment analytics feature is currently unavailable. The basic fee defaulter reports are still functional.")
+
     elif process_button and (not contacts_file or not invoices_file):
         st.warning("⚠️ Please upload both CSV files before processing")
     
