@@ -578,6 +578,15 @@ def main():
                 key="grade_filter_initial"
             )
 
+        # Search by student name
+        st.markdown("---")
+        search_query = st.text_input(
+            "🔍 Search by Student Name:",
+            placeholder="Enter student name to search...",
+            help="Search for specific students by name (case-insensitive)",
+            key="student_search_initial"
+        )
+
         # Apply filters
         filtered_results = initial_fee_results.copy()
         if selected_school != "All Schools":
@@ -586,6 +595,13 @@ def main():
             filtered_results = filtered_results[filtered_results['Status'] == selected_status]
         if selected_grade != "All Grades":
             filtered_results = filtered_results[filtered_results['Grade'] == selected_grade]
+
+        # Apply search filter
+        if search_query and search_query.strip():
+            search_term = search_query.strip().lower()
+            filtered_results = filtered_results[
+                filtered_results['Student Name'].str.lower().str.contains(search_term, na=False)
+            ]
 
         # Display the filtered results
         if not filtered_results.empty:
