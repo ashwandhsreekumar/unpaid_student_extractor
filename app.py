@@ -7,7 +7,9 @@ import os
 from pathlib import Path
 import tempfile
 import zipfile
+import io
 from fee_extractor import FeeDefaulterExtractor
+from initial_fee_defaulters import InitialFeeDefaulterExtractor
 
 def format_indian_currency(amount):
     """Format number in Indian currency style (lakhs and crores)"""
@@ -186,21 +188,65 @@ def process_uploaded_files(contacts_file, invoices_file):
             }
         
         # Process payment analytics data - pass the contacts data for accurate counts
-        payment_analytics = process_payment_analytics(invoices_path, contacts_path)
-        
-        # Create zip file with all reports
-        zip_path = os.path.join(temp_dir, "fee_defaulter_reports.zip")
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        payment_analytics = extractor.create_payment_analytics(extractor.contacts_df, defaulter_invoices)
+
+        # Create ZIP file for downloads
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add all generated reports to the ZIP
             for root, dirs, files in os.walk(output_path):
                 for file in files:
                     file_path = os.path.join(root, file)
                     arcname = os.path.relpath(file_path, output_path)
-                    zipf.write(file_path, arcname)
-        
-        with open(zip_path, "rb") as f:
-            zip_data = f.read()
-        
+                    zip_file.write(file_path, arcname)
+
+        zip_buffer.seek(0)
+        zip_data = zip_buffer.getvalue()
+
         return results, zip_data, school_stats, payment_analytics
+
+def process_initial_fee_defaulters(contacts_file, invoices_file, payments_file):
+    """Process files for initial fee and opening balance defaulters"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Save uploaded files
+        contacts_path = os.path.join(temp_dir, "Contacts.csv")
+        invoices_path = os.path.join(temp_dir, "Invoice.csv")
+        payments_path = os.path.join(temp_dir, "Customer_Payment.csv")
+        output_path = os.path.join(temp_dir, "output")
+
+        with open(contacts_path, "wb") as f:
+            f.write(contacts_file.getbuffer())
+        with open(invoices_path, "wb") as f:
+            f.write(invoices_file.getbuffer())
+        with open(payments_path, "wb") as f:
+            f.write(payments_file.getbuffer())
+
+        # Run initial fee defaulter extraction
+        extractor = InitialFeeDefaulterExtractor(
+            contacts_path=contacts_path,
+            invoices_path=invoices_path,
+            payments_path=payments_path,
+            output_base_path=output_path
+        )
+
+        # Process data and get results
+        defaulters_df = extractor.extract_initial_fee_defaulters()
+
+        # Create ZIP file for downloads
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            if not defaulters_df.empty:
+                # Save the main report
+                main_report_path = os.path.join(output_path, 'fee_and_opening_balance_defaulters.csv')
+                extractor.save_defaulters_report(defaulters_df)
+
+                if os.path.exists(main_report_path):
+                    zip_file.write(main_report_path, 'fee_and_opening_balance_defaulters.csv')
+
+        zip_buffer.seek(0)
+        zip_data = zip_buffer.getvalue()
+
+        return defaulters_df, zip_data
 
 def process_payment_analytics(invoices_path, contacts_path):
     """Process payment analytics from invoice data"""
@@ -349,6 +395,9 @@ def main():
         st.session_state.zip_data = None
         st.session_state.school_stats = None
         st.session_state.payment_analytics = None
+        st.session_state.initial_fee_processed = False
+        st.session_state.initial_fee_results = None
+        st.session_state.initial_fee_zip_data = None
     
     # Sidebar
     with st.sidebar:
@@ -367,17 +416,28 @@ def main():
             help="Upload the invoice CSV file from Zoho Books",
             key="invoices_uploader"
         )
-        
+
+        payments_file = st.file_uploader(
+            "Upload Customer_Payment.csv",
+            type=['csv'],
+            help="Upload the customer payment CSV file from Zoho Books (for opening balance analysis)",
+            key="payments_uploader"
+        )
+
         process_button = st.button("🚀 Process Files", type="primary", use_container_width=True)
+        initial_fee_button = st.button("💰 Process Initial Fee & Opening Balance Defaulters", type="secondary", use_container_width=True)
         
         # Reset button
-        if st.session_state.processed:
+        if st.session_state.processed or st.session_state.initial_fee_processed:
             if st.button("🔄 Reset", type="secondary", use_container_width=True):
                 st.session_state.processed = False
                 st.session_state.results = None
                 st.session_state.zip_data = None
                 st.session_state.school_stats = None
                 st.session_state.payment_analytics = None
+                st.session_state.initial_fee_processed = False
+                st.session_state.initial_fee_results = None
+                st.session_state.initial_fee_zip_data = None
                 st.rerun()
         
         st.divider()
@@ -386,13 +446,16 @@ def main():
         
         st.markdown("""
         ### 📋 Instructions
-        1. Upload both CSV files
-        2. Click 'Process Files'
+        1. Upload CSV files (Contacts & Invoice required for basic processing)
+        2. Choose processing type:
+           - **🚀 Process Files**: Standard fee defaulter analysis
+           - **💰 Process Initial Fee & Opening Balance**: Advanced analysis with opening balance tracking
         3. View results and download reports
-        
+
         ### 📊 Report Types
         - **Teachers Report**: Shows payment status (Paid/Unpaid)
         - **Accounts Report**: Shows outstanding amounts
+        - **💰 Fee & Opening Balance Report**: Combined initial fee + opening balance defaulters
         """)
     
     # Main content area
@@ -400,26 +463,122 @@ def main():
         with st.spinner("Processing files..."):
             try:
                 results, zip_data, school_stats, payment_analytics = process_uploaded_files(contacts_file, invoices_file)
-                
+
                 # Store in session state
                 st.session_state.processed = True
                 st.session_state.results = results
                 st.session_state.zip_data = zip_data
                 st.session_state.school_stats = school_stats
                 st.session_state.payment_analytics = payment_analytics
-                
+
                 st.success("✅ Files processed successfully! Using proportional balance allocation for accurate calculations.")
                 st.rerun()
-                
+
             except Exception as e:
                 st.error(f"❌ Error processing files: {str(e)}")
                 st.exception(e)
-    
+
+    # Process initial fee and opening balance defaulters
+    if initial_fee_button and contacts_file and invoices_file and payments_file:
+        with st.spinner("Processing initial fee and opening balance defaulters..."):
+            try:
+                initial_fee_results, initial_fee_zip_data = process_initial_fee_defaulters(contacts_file, invoices_file, payments_file)
+
+                # Store in session state
+                st.session_state.initial_fee_processed = True
+                st.session_state.initial_fee_results = initial_fee_results
+                st.session_state.initial_fee_zip_data = initial_fee_zip_data
+
+                st.success("✅ Initial fee and opening balance defaulters processed successfully!")
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"❌ Error processing initial fee defaulters: {str(e)}")
+                st.exception(e)
+
+    # Display initial fee defaulters results
+    elif st.session_state.initial_fee_processed and st.session_state.initial_fee_results is not None:
+        initial_fee_results = st.session_state.initial_fee_results
+        initial_fee_zip_data = st.session_state.initial_fee_zip_data
+
+        # Download button for initial fee defaulters report
+        st.download_button(
+            label="📥 Download Fee & Opening Balance Defaulters Report (CSV)",
+            data=initial_fee_zip_data,
+            file_name=f"fee_and_opening_balance_defaulters_{date.today().strftime('%Y%m%d')}.zip",
+            mime="application/zip",
+            use_container_width=True
+        )
+
+        # Display summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            total_defaulters = len(initial_fee_results)
+            st.metric("Total Defaulters", total_defaulters)
+        with col2:
+            fee_defaulters = len(initial_fee_results[initial_fee_results['Status'] == 'Initial Fee Not Paid'])
+            st.metric("Initial Fee Defaulters", fee_defaulters)
+        with col3:
+            opening_balance_defaulters = len(initial_fee_results[initial_fee_results['Status'] == 'Opening Balance Not Fully Paid'])
+            st.metric("Opening Balance Defaulters", opening_balance_defaulters)
+        with col4:
+            if opening_balance_defaulters > 0:
+                total_outstanding = initial_fee_results[
+                    initial_fee_results['Status'] == 'Opening Balance Not Fully Paid'
+                ]['Remaining Opening Balance'].sum()
+                st.metric("Total Outstanding Balance", f"₹{total_outstanding:,.0f}")
+            else:
+                st.metric("Total Outstanding Balance", "₹0")
+
+        # Display results table
+        st.subheader("📋 Fee & Opening Balance Defaulters")
+
+        # Filter options
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_school = st.selectbox(
+                "Filter by School:",
+                ["All Schools"] + list(initial_fee_results['School'].unique()),
+                key="school_filter_initial"
+            )
+        with col2:
+            selected_status = st.selectbox(
+                "Filter by Status:",
+                ["All"] + list(initial_fee_results['Status'].unique()),
+                key="status_filter_initial"
+            )
+
+        # Apply filters
+        filtered_results = initial_fee_results.copy()
+        if selected_school != "All Schools":
+            filtered_results = filtered_results[filtered_results['School'] == selected_school]
+        if selected_status != "All":
+            filtered_results = filtered_results[filtered_results['Status'] == selected_status]
+
+        # Display the filtered results
+        if not filtered_results.empty:
+            # Format numeric columns for display
+            display_df = filtered_results.copy()
+            display_df['Opening Balance'] = display_df['Opening Balance'].apply(lambda x: f"₹{x:,.2f}" if x > 0 else "-")
+            display_df['Total Paid Opening Balance'] = display_df['Total Paid Opening Balance'].apply(lambda x: f"₹{x:,.2f}" if x > 0 else "-")
+            display_df['Remaining Opening Balance'] = display_df['Remaining Opening Balance'].apply(lambda x: f"₹{x:,.2f}" if x > 0 else "-")
+
+            st.dataframe(
+                display_df[['Customer ID', 'Student Name', 'School', 'Grade', 'Section', 'Status',
+                           'Opening Balance', 'Total Paid Opening Balance', 'Remaining Opening Balance']],
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.info(f"Showing {len(display_df)} defaulters out of {len(initial_fee_results)} total")
+        else:
+            st.warning("No defaulters found matching the selected filters.")
+
     elif st.session_state.processed and st.session_state.results:
         # Display results from session state
         results = st.session_state.results
         zip_data = st.session_state.zip_data
-        
+
         # Download button for all reports
         st.download_button(
             label="📥 Download All Reports (ZIP)",
@@ -428,7 +587,7 @@ def main():
             mime="application/zip",
             use_container_width=True
         )
-        
+
         # Tabs for each school and payment analytics
         tab1, tab2, tab3 = st.tabs(["Excel Central School", "Excel Global School", "💰 Payment Analytics"])
         
