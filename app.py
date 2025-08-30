@@ -1140,9 +1140,6 @@ def create_payment_summary_table(school_name, analytics, session_state):
         # Show summary metrics
         st.markdown(f"**Overall Payment Rate: {(grand_total_paid/grand_total_students*100):.1f}%** ({grand_total_paid} out of {grand_total_students} students)")
 
-            else:
-                st.info("📊 Payment analytics feature is currently unavailable. The basic fee defaulter reports are still functional.")
-
     elif process_button and (not contacts_file or not invoices_file):
         st.warning("⚠️ Please upload both CSV files before processing")
     
