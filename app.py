@@ -579,13 +579,14 @@ def main():
             )
 
         # Search by student name
-        st.markdown("---")
         search_query = st.text_input(
             "🔍 Search by Student Name:",
             placeholder="Enter student name to search...",
             help="Search for specific students by name (case-insensitive)",
             key="student_search_initial"
         )
+
+        st.markdown("---")
 
         # Apply filters
         filtered_results = initial_fee_results.copy()
