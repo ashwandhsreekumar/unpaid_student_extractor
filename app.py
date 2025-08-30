@@ -535,18 +535,47 @@ def main():
         st.subheader("📋 Fee & Opening Balance Defaulters")
 
         # Filter options
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             selected_school = st.selectbox(
                 "Filter by School:",
-                ["All Schools"] + list(initial_fee_results['School'].unique()),
+                ["All Schools"] + sorted(list(initial_fee_results['School'].unique())),
                 key="school_filter_initial"
             )
         with col2:
             selected_status = st.selectbox(
                 "Filter by Status:",
-                ["All"] + list(initial_fee_results['Status'].unique()),
+                ["All"] + sorted(list(initial_fee_results['Status'].unique())),
                 key="status_filter_initial"
+            )
+        with col3:
+            # Get unique grades and sort them properly
+            all_grades = list(initial_fee_results['Grade'].unique())
+
+            # Define grade ordering function
+            def grade_sort_key(grade):
+                if grade == 'Pre-KG':
+                    return (0, 0)
+                elif grade == 'LKG':
+                    return (1, 0)
+                elif grade == 'UKG':
+                    return (2, 0)
+                elif grade.startswith('Grade '):
+                    try:
+                        grade_num = int(grade.replace('Grade ', ''))
+                        return (3, grade_num)
+                    except ValueError:
+                        return (4, grade)
+                else:
+                    return (4, grade)
+
+            # Sort grades in proper order
+            selected_grades = sorted(all_grades, key=grade_sort_key)
+
+            selected_grade = st.selectbox(
+                "Filter by Grade:",
+                ["All Grades"] + selected_grades,
+                key="grade_filter_initial"
             )
 
         # Apply filters
@@ -555,6 +584,8 @@ def main():
             filtered_results = filtered_results[filtered_results['School'] == selected_school]
         if selected_status != "All":
             filtered_results = filtered_results[filtered_results['Status'] == selected_status]
+        if selected_grade != "All Grades":
+            filtered_results = filtered_results[filtered_results['Grade'] == selected_grade]
 
         # Display the filtered results
         if not filtered_results.empty:
